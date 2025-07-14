@@ -1,0 +1,47 @@
+# .gitignore
+
+# --- Environment Variables ---
+# Critical: Do NOT commit your local environment variables
+.env
+.env.local
+.env.*.local
+
+# --- Python Specific ---
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+.Python
+env/
+venv/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/ # If you use Jupyter notebooks for data exploration
+
+# --- Node.js / React / Vite Specific ---
+node_modules/
+dist/          # Vite's default build output directory
+.vite/         # Vite's cache directory
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+.parcel-cache/ # If you ever used Parcel
+.eslintcache
+build/         # Common build output directory for React apps
+
+# --- Operating System Specific ---
+.DS_Store      # macOS
+Thumbs.db      # Windows
+ehthumbs.db
+.Spotlight-V100
+.Trashes
+
+# --- IDE Specific (Optional, but good practice) ---
+.vscode/       # VS Code settings
+.idea/         # IntelliJ / PyCharm settings
+*.sublime-project
+*.sublime-workspace
+
+# --- Database Specific (if any local DB files are generated) ---
+*.sqlite3      # For SQLite databases if you ever use them
+*.db
