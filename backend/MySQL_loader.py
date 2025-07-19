@@ -6,11 +6,11 @@ from sqlalchemy.exc import SQLAlchemyError
 import re
 
 DB_CONFIG = {
-    'host':'localhost',
+    'host':'127.0.0.1',
     'database':'baseball_analytics',
     'user':'root',
     'password':'#S3thIsCoo105302005',
-    'port':3306
+    'port':3307
 }
 
 CSV_FILE_PATH = '2025MLB_STD_Batting.csv'
@@ -26,21 +26,17 @@ def generate_player_id(player_name, age=None, team=None, season=None):
     if pd.isna(player_name):
         return None
     name = str(player_name).strip().lower()
-    # Replace non-alphanumeric characters (except spaces) with nothing, then spaces with underscores
     name_slug = re.sub(r'[^a-z0-9\s]', '', name)
     name_slug = re.sub(r'\s+', '_', name_slug)
 
-    # Append disambiguating factors if provided
     parts = [name_slug]
     if age is not None:
         parts.append(str(age))
-    if team and str(team).strip() != 'N/A': # Only append if not empty/default
-        parts.append(str(team).lower().replace(' ', '_')) # Slugify team name too
+    if team and str(team).strip() != 'N/A': 
+        parts.append(str(team).lower().replace(' ', '_'))
     if season is not None:
         parts.append(str(season))
 
-    # Join the parts to form the final player_id
-    # Ensure the length doesn't exceed 50 characters (VARCHAR(50))
     full_id = "_".join(parts)
     return full_id[:50] # Truncate to ensure it fits VARCHAR(50)
 
@@ -50,7 +46,7 @@ def setup_database_schema(db_config):
     Sets up the SQLAlchemy engine and defines the table schemas.
     """
     db_url = f"mysql+pymysql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
-    engine = create_engine(db_url, echo=False) # Set echo=True to see generated SQL queries
+    engine = create_engine(db_url, echo=False) 
 
     metadata = MetaData()
 
@@ -99,35 +95,28 @@ def setup_database_schema(db_config):
         Column('lg', String(10), nullable=True),
         ForeignKeyConstraint(['player_id'], ['players.player_id']) # Foreign key constraint
     )
-
-    # Create all tables in the database (if they don't already exist)
-    # This is a convenient way to ensure your schema matches your model
     try:
         metadata.create_all(engine)
         print("Database tables ensured to exist.")
     except SQLAlchemyError as e:
         print(f"Error creating tables: {e}")
-        # If tables already exist, this might just pass, but catch for other errors.
 
     return engine, players_table, player_stats_table
 
-# --- Function to insert data into players table ---
+# Function to insert data into players table
 def insert_player(connection, players_table, player_id, player_name):
     """
     Inserts a player into the 'players' table if they don't already exist.
     """
-    # Check if player already exists
-    # Use SQLAlchemy's select() to build the query
     s = players_table.select().where(players_table.c.player_id == player_id)
     result = connection.execute(s).fetchone()
 
     if not result:
-        # Use SQLAlchemy's insert() to build the insert statement
         ins = players_table.insert().values(
             player_id=player_id,
             player_name=player_name,
             primary_position=None, # Will be NULL for now
-            mlb_debut_year=None     # Will be NULL for now
+            mlb_debut_year=None
         )
         try:
             connection.execute(ins)
@@ -135,17 +124,14 @@ def insert_player(connection, players_table, player_id, player_name):
             print(f"Inserted new player: {player_name} (ID: {player_id})")
         except SQLAlchemyError as e:
             print(f"Error inserting player {player_name} (ID: {player_id}): {e}")
-            connection.rollback() # Rollback on error
-    # else:
-        # print(f"Player {player_name} (ID: {player_id}) already exists.") # Uncomment for verbose output
+            connection.rollback() 
 
 
-# --- Function to insert data into player_stats table ---
+# Function to insert data into player_stats table
 def insert_player_stat(connection, player_stats_table, stat_data):
     """
     Inserts a single row of player statistics into the 'player_stats' table.
     """
-    # Using a dictionary for insert values is generally more readable with SQLAlchemy
     ins = player_stats_table.insert().values(**stat_data)
     try:
         connection.execute(ins)
@@ -153,9 +139,9 @@ def insert_player_stat(connection, player_stats_table, stat_data):
         print(f"Inserted stats for {stat_data['player_id']} in season {stat_data['season']} with team {stat_data['team']}")
     except SQLAlchemyError as e:
         print(f"Error inserting stats for {stat_data['player_id']} in season {stat_data['season']} (Team: {stat_data['team']}): {e}")
-        connection.rollback() # Rollback on error
+        connection.rollback()
 
-# --- Main script execution ---
+# Main script execution
 if __name__ == "__main__":
     # Setup database engine and table objects
     engine, players_table, player_stats_table = setup_database_schema(DB_CONFIG)
@@ -169,7 +155,6 @@ if __name__ == "__main__":
                 print(f"Loaded {len(df)} rows from {CSV_FILE_PATH}")
 
                 # Rename columns to match database schema conventions where necessary
-                # Make sure these match your CSV headers exactly!
                 df = df.rename(columns={
                     'Player': 'player_name',
                     'Team': 'team',
@@ -205,12 +190,6 @@ if __name__ == "__main__":
                     'Age': 'age' # Add age for potential future use or to infer season
                 })
 
-                # --- Data Cleaning and Type Conversion ---
-                # Handle 'season' column
-                # If your CSV *does not* have a 'season' column, you must infer it.
-                # A common approach for single-season CSVs is to define it.
-                # If your data comes from a source like Baseball-Reference yearly pages,
-                # the year is often implicit or in the filename.
                 if 'season' not in df.columns:
                     print("Warning: 'season' column not found. Assuming data is for 2023. Please verify.")
                     df['season'] = 2023 # Default to a recent year, adjust as needed

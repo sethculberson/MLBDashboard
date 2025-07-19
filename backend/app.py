@@ -1,27 +1,24 @@
 from flask import Flask, jsonify
-from sqlalchemy import create_engine, Column, Integer, String, DECIMAL, MetaData, Table, and_, extract, select
+from sqlalchemy import create_engine, Column, Integer, String, DECIMAL, MetaData, Table, and_, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 import os
 from dotenv import load_dotenv
-from flask_cors import CORS 
+from flask_cors import CORS
 
-# Load environment variables e.g. MySQL DB creds
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "http://localhost:5173"}}) # Changing when I deploy
+CORS(app, resources={r"/api/*": {"origins": ["http://localhost:5173", "http://localhost", "http://127.0.0.1", "http://localhost:80"]}})
 
-# Database Configuration
 DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'localhost'),
+    'host': os.getenv('DB_HOST', 'mysql_db'),
     'database': os.getenv('DB_DATABASE', 'baseball_analytics'),
     'user': os.getenv('DB_USER'),
     'password': os.getenv('DB_PASSWORD'),
     'port': int(os.getenv('DB_PORT', 3306))
 }
 
-# SQLAlchemy Setup
 DB_URL = f"mysql+pymysql://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
 
 engine = None
@@ -41,7 +38,8 @@ players_table = Table(
     Column('player_name', String(255), nullable=False),
     Column('primary_position', String(50), nullable=True),
     Column('mlb_debut_year', Integer, nullable=True),
-    Column('mlbam_id', Integer, unique=True, nullable=True) # Added mlbam_id for future Statcast linking
+    Column('mlbam_id', Integer, unique=True, nullable=True),
+    Column('batting_hand', String(10), nullable=True)
 )
 
 player_stats_table = Table(
@@ -94,9 +92,6 @@ player_contracts_table = Table(
 
 Session = sessionmaker(bind=engine)
 
-# * API Endpoints *
-
-# Returns list of players with ID and name
 @app.route('/api/players', methods=['GET'])
 def get_players():
     if not engine:
@@ -114,7 +109,6 @@ def get_players():
     finally:
         session.close()
 
-# Returns player contract by ID, NOT ACTIVE YET
 @app.route('/api/player_contracts/<string:player_id>', methods=['GET'])
 def get_player_contracts(player_id):
     if not engine:
@@ -147,38 +141,31 @@ def get_player_contracts(player_id):
     finally:
         session.close()
 
-# Returns batting statistics for a specific player
 @app.route('/api/player_stats/<string:player_id>/<int:season>', methods=['GET'])
 def get_player_stats_for_season(player_id, season):
-    """
-    Returns batting statistics for a specific player for a given season.
-    Includes player_name by joining with the players table.
-    """
     if not engine:
         return jsonify({"error": "Database connection not established."}), 500
     session = Session()
     try:
-        # Use select to explicitly choose columns and ensure player_stats_table columns are grouped
         stmt = select(player_stats_table, players_table.c.player_name).join(
             players_table, player_stats_table.c.player_id == players_table.c.player_id
         ).filter(
             and_(player_stats_table.c.player_id == player_id,
                  player_stats_table.c.season == season)
         )
-        result_row = session.execute(stmt).fetchone() # Use fetchone() to get a single result row
+        result_row = session.execute(stmt).fetchone()
 
         if not result_row:
             return jsonify({"message": "No stats found for this player in the specified season."}), 404
 
-        # Access columns by name from the result_row using getattr
         stats = {}
         for column in player_stats_table.columns:
-            value = getattr(result_row, column.name) # Corrected: Use getattr
+            value = getattr(result_row, column.name)
             if isinstance(value, type(DECIMAL)):
                 stats[column.name] = float(value)
             else:
                 stats[column.name] = value
-        stats['player_name'] = getattr(result_row, players_table.c.player_name.name) # Corrected: Use getattr for player_name
+        stats['player_name'] = getattr(result_row, players_table.c.player_name.name)
 
         return jsonify(stats)
     except SQLAlchemyError as e:
@@ -187,18 +174,12 @@ def get_player_stats_for_season(player_id, season):
     finally:
         session.close()
 
-# Returns all player stats in a season
 @app.route('/api/season_stats/<int:season>', methods=['GET'])
 def get_all_player_stats_for_season(season):
-    """
-    Returns all batting statistics for all players for a given season.
-    Includes player_name by joining with the players table.
-    """
     if not engine:
         return jsonify({"error": "Database connection not established."}), 500
     session = Session()
     try:
-        # Select all columns from player_stats and player_name from players
         stmt = select(player_stats_table, players_table.c.player_name).join(
             players_table, player_stats_table.c.player_id == players_table.c.player_id
         ).filter(player_stats_table.c.season == season)
@@ -209,20 +190,17 @@ def get_all_player_stats_for_season(season):
             return jsonify({"message": f"No stats found for season {season}."}), 404
 
         all_stats_data = []
-        # Get column names from player_stats_table for easy mapping
         stat_column_names = [col.name for col in player_stats_table.columns]
 
         for row in results:
-            # Create a dictionary for each row, combining stats and player_name
             row_dict = {}
-            # Iterate through the columns of player_stats_table to get values
-            for col_name in stat_column_names: # Iterate by name, not index
-                value = getattr(row, col_name) # Corrected: Use getattr
+            for col_name in stat_column_names:
+                value = getattr(row, col_name)
                 if isinstance(value, type(DECIMAL)):
                     row_dict[col_name] = float(value)
                 else:
                     row_dict[col_name] = value
-            row_dict['player_name'] = getattr(row, players_table.c.player_name.name) # Corrected: Use getattr for player_name
+            row_dict['player_name'] = getattr(row, players_table.c.player_name.name)
             all_stats_data.append(row_dict)
 
         return jsonify(all_stats_data)
@@ -232,6 +210,5 @@ def get_all_player_stats_for_season(season):
     finally:
         session.close()
 
-
 if __name__ == '__main__':
-    app.run(debug=True, host='127.0.0.1', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5000)

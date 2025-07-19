@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # MySQL Service
+  mysql_db:
+    image: mysql:8.0
+    container_name: baseball_mysql_db
+    env_file:
+      - .env # Load .env credentials
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD} 
+      MYSQL_DATABASE: ${DB_DATABASE}
+    command: --default-authentication-plugin=mysql_native_password --sql-mode="NO_ENGINE_SUBSTITUTION"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./db_init:/docker-entrypoint-initdb.d
+    ports:
+      - "3307:3306" # Changed MySQL port 3306 from container to host port 3307
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"] 
+      timeout: 20s
+      retries: 10
+      interval: 5s
+      start_period: 30s # Give MySQL 30 seconds to start before first health check
+
+  # Flask Service
+  backend:
+    build:
+      context: . # Build context is the project root
+      dockerfile: backend/Dockerfile # Path to the backend Dockerfile
+    container_name: baseball_flask_backend
+    env_file:
+      - .env
+    ports:
+      - "5001:5000" # Expose Flask port 5000 from container to host port 5001
+    depends_on:
+      mysql_db:
+        condition: service_healthy 
+    restart: unless-stopped
+
+  # React Frontend Service (served by Nginx)
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile 
+      args:
+        # Pass the Flask API URL to the React build process
+        VITE_FLASK_API_URL: http://localhost:5001 # Changed to host-accessible Flask port
+    container_name: baseball_react_frontend
+    ports:
+      - "80:80" # Expose Nginx port 80 to host port 80
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
